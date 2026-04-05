@@ -38,7 +38,13 @@ body {
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
+  overflow-x: hidden; /* fallback for older WebKit */
+}
+/* overflow-x: clip does the same visual clipping as hidden but does NOT
+   create a new scroll container — so position:sticky keeps working on
+   iOS Safari/Chrome (WKWebView). Supported iOS 16+ / Safari 15.4+.    */
+@supports (overflow-x: clip) {
+  body { overflow-x: clip; }
 }
 
 /* ── Shared ─────────────────────────────────────── */
@@ -183,6 +189,7 @@ nav {
   position: absolute; top: 0; bottom: 0; width: 50%;
   background: var(--bg-dark); z-index: 2;
   display: flex; align-items: center;
+  will-change: transform; /* GPU compositing for xPercent animation on iOS */
 }
 .curtain-left {
   left: 0; justify-content: flex-end; padding-right: 52px;
@@ -342,7 +349,10 @@ nav {
 .mask-reveal {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  z-index: 3; clip-path: inset(100% 0 0 0);
+  z-index: 3;
+  -webkit-clip-path: inset(100% 0 0 0); /* required for iOS WebKit */
+  clip-path: inset(100% 0 0 0);
+  will-change: transform, clip-path; /* GPU layer — iOS composites both props */
 }
 .mask-text-filled {
   font-family: 'Bebas Neue', sans-serif;
@@ -929,10 +939,18 @@ footer a:hover { color: var(--fg-muted); }
 (function () {
   gsap.registerPlugin(ScrollTrigger);
 
+  /* ── iOS-safe config: ignoreMobileResize prevents the address-bar
+        show/hide cycle from triggering ScrollTrigger recalculations that
+        knock trigger positions out of sync mid-scroll. Must be called
+        before any triggers are created. ─────────────────────────────── */
+  ScrollTrigger.config({ ignoreMobileResize: true });
+
   /* ── normalizeScroll: smooths iOS momentum scroll so scrub animations
         don't jump when the address bar shows/hides or inertia kicks in.
-        Safe on desktop — it only intercepts on touch devices. ─────────── */
-  ScrollTrigger.normalizeScroll(true);
+        allowNestedScroll: true prevents GSAP from swallowing scroll events
+        inside nested overflow containers (e.g. the mobile menu overlay).
+        Safe on desktop — only intercepts on touch devices. ───────────── */
+  ScrollTrigger.normalizeScroll({ allowNestedScroll: true });
 
   /* ── Curtain Reveal ─────────────────────────────── */
   var curtain = document.querySelector('.curtain-section');
@@ -1003,8 +1021,15 @@ footer a:hover { color: var(--fg-muted); }
     document.querySelectorAll('.mask-section').forEach(function (section) {
       var reveal  = section.querySelector('.mask-reveal');
       var subtext = section.querySelector('.mask-subtext');
+
+      /* iOS WebKit (WKWebView) cannot reliably composite clip-path animations —
+         the rasterisation cost causes frames to drop or the animation to never
+         fire. translateY is pure GPU-layer work: the element is pre-painted and
+         the compositor just repositions it. parent overflow:hidden provides the
+         same visual clipping as inset(100% 0 0 0) had on desktop. ─────────── */
+      gsap.set(reveal, { yPercent: 100, clipPath: 'none' });
       gsap.to(reveal, {
-        clipPath: 'inset(0% 0 0 0)', ease: 'none',
+        yPercent: 0, ease: 'none',
         scrollTrigger: { trigger: section, start: 'top top', end: '80% bottom', scrub: 0.4 }
       });
       if (subtext) {
@@ -1021,6 +1046,18 @@ footer a:hover { color: var(--fg-muted); }
     gsap.from(el, {
       opacity: 0, y: 20, duration: 0.65, ease: 'power2.out', delay: i * 0.07,
       scrollTrigger: { trigger: el, start: 'top 88%' }
+    });
+  });
+
+  /* ── Deferred refresh: iOS lays out the page in multiple passes —
+        fonts render, the address bar settles, viewport units resolve.
+        Waiting one rAF + 200 ms lets everything stabilise so ScrollTrigger
+        recalculates all trigger start/end positions against the final layout.
+        Without this, triggers set at page-load can be hundreds of pixels off
+        and the user never scrolls into range. ─────────────────────────── */
+  window.addEventListener('load', function () {
+    requestAnimationFrame(function () {
+      setTimeout(function () { ScrollTrigger.refresh(); }, 200);
     });
   });
 
