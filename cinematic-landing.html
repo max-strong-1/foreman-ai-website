@@ -144,6 +144,7 @@ nav {
 
 /* ── Pre-Hero ───────────────────────────────────── */
 .pre-hero {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -171,9 +172,12 @@ nav {
 /* ── Curtain Reveal ─────────────────────────────── */
 .curtain-section { position: relative; height: 300vh; }
 .curtain-sticky {
-  position: sticky; top: 0; height: 100dvh;
+  position: sticky; top: 0;
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
+  touch-action: pan-y;
 }
 .curtain-left, .curtain-right {
   position: absolute; top: 0; bottom: 0; width: 50%;
@@ -300,9 +304,12 @@ nav {
 /* ── Text Mask (all three) ──────────────────────── */
 .mask-section { position: relative; min-height: 300vh; }
 .mask-sticky {
-  position: sticky; top: 0; min-height: 100dvh;
+  position: sticky; top: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
+  touch-action: pan-y;
 }
 /* Job site video layer — swap src when real footage is ready */
 .mask-video {
@@ -564,6 +571,12 @@ footer a:hover { color: var(--fg-muted); }
 
   .curtain-left { padding-right: 24px; }
   .curtain-right { padding-left: 24px; }
+
+  /* Reduce scroll distance on mobile — touch swipes cover distance faster,
+     so 300vh creates unnecessarily long sticky sections. JS trigger endpoints
+     are recalculated via gsap.matchMedia() to match these shorter heights. */
+  .curtain-section { height: 200vh; }
+  .mask-section { min-height: 200vh; }
 
   .services { padding: 80px 24px; }
 
@@ -916,6 +929,11 @@ footer a:hover { color: var(--fg-muted); }
 (function () {
   gsap.registerPlugin(ScrollTrigger);
 
+  /* ── normalizeScroll: smooths iOS momentum scroll so scrub animations
+        don't jump when the address bar shows/hides or inertia kicks in.
+        Safe on desktop — it only intercepts on touch devices. ─────────── */
+  ScrollTrigger.normalizeScroll(true);
+
   /* ── Curtain Reveal ─────────────────────────────── */
   var curtain = document.querySelector('.curtain-section');
   gsap.to('#cLeft', {
@@ -933,6 +951,9 @@ footer a:hover { color: var(--fg-muted); }
     row.appendChild(content.cloneNode(true));
   });
 
+  /* scrollVelocity is updated by ScrollTrigger's onUpdate, which fires for
+     both wheel and touch scroll events — normalizeScroll ensures touch
+     velocity is captured accurately on iOS/Android. */
   var scrollVelocity = 0;
   ScrollTrigger.create({
     onUpdate: function (self) { scrollVelocity = Math.abs(self.getVelocity()); }
@@ -954,22 +975,45 @@ footer a:hover { color: var(--fg-muted); }
     })();
   });
 
-  /* ── Text Mask — all three sections ─────────────── */
-  document.querySelectorAll('.mask-section').forEach(function (section) {
-    var reveal  = section.querySelector('.mask-reveal');
-    var subtext = section.querySelector('.mask-subtext');
+  /* ── Text Mask — responsive trigger endpoints ───────
+     Desktop (300vh sections): end at '60% bottom' ≈ 80vh of scrub travel.
+     Mobile  (200vh sections): end at '80% bottom' ≈ 60vh of scrub travel —
+     proportionally equivalent feel on a smaller viewport. gsap.matchMedia()
+     automatically kills and re-creates triggers on orientation change. ── */
+  var mm = gsap.matchMedia();
 
-    gsap.to(reveal, {
-      clipPath: 'inset(0% 0 0 0)', ease: 'none',
-      scrollTrigger: { trigger: section, start: 'top top', end: '60% bottom', scrub: 0.4 }
-    });
-
-    if (subtext) {
-      gsap.to(subtext, {
-        opacity: 1,
-        scrollTrigger: { trigger: section, start: '55% top', end: '70% top', scrub: true }
+  mm.add('(min-width: 769px)', function () {
+    document.querySelectorAll('.mask-section').forEach(function (section) {
+      var reveal  = section.querySelector('.mask-reveal');
+      var subtext = section.querySelector('.mask-subtext');
+      gsap.to(reveal, {
+        clipPath: 'inset(0% 0 0 0)', ease: 'none',
+        scrollTrigger: { trigger: section, start: 'top top', end: '60% bottom', scrub: 0.4 }
       });
-    }
+      if (subtext) {
+        gsap.to(subtext, {
+          opacity: 1,
+          scrollTrigger: { trigger: section, start: '55% top', end: '70% top', scrub: true }
+        });
+      }
+    });
+  });
+
+  mm.add('(max-width: 768px)', function () {
+    document.querySelectorAll('.mask-section').forEach(function (section) {
+      var reveal  = section.querySelector('.mask-reveal');
+      var subtext = section.querySelector('.mask-subtext');
+      gsap.to(reveal, {
+        clipPath: 'inset(0% 0 0 0)', ease: 'none',
+        scrollTrigger: { trigger: section, start: 'top top', end: '80% bottom', scrub: 0.4 }
+      });
+      if (subtext) {
+        gsap.to(subtext, {
+          opacity: 1,
+          scrollTrigger: { trigger: section, start: '70% top', end: '85% top', scrub: true }
+        });
+      }
+    });
   });
 
   /* ── Stat + card entrances ───────────────────────── */
